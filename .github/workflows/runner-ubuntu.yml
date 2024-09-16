@@ -1,0 +1,78 @@
+name: Runner-Ubuntu
+
+on:
+  workflow_dispatch:
+
+jobs:
+  RunnerCheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Check-Runner
+        id: checkrunner
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/check-runners.sh 17100 "Linux"
+
+      - name: Remove-Runner
+        if: always()
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/remove_runner.sh "${{ secrets.TOKEN }}" "Linux"
+
+      - name: Start-New-Workflow
+        if: ${{ steps.checkrunner.conclusion != 'cancelled' }} 
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/start_workflow.sh "${{ secrets.TOKEN }}" "Runner-Ubuntu"
+
+      - name: Cancel-Workflow
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/cancel_workflow.sh "${{ secrets.TOKEN }}" "${{ github.run_id }}"
+
+  Ubuntu:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /cleanup.sh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cleanup Script Setup
+        run: |
+          tree
+          chmod -R 777 *
+          sudo cp ./src/ubuntu/cleanup.sh /cleanup.sh
+
+      - name: Runner Setup
+        run: |
+          chmod -R 777 *
+          cd src/ubuntu
+          ./setup.sh
+
+      - name: Run
+        run: |
+          chmod -R 777 *
+          cd src/ubuntu/
+          runnertoken=$(./gen_runner_token.sh "${{ secrets.TOKEN }}" "RenGamesTeam")
+          cd actions-runner
+          ./config.sh --url https://github.com/RenGamesTeam --token "$runnertoken"
+          sudo ./svc.sh install
+          sudo ./svc.sh start
+          # ./run.sh
+
+      - name: Timer
+        run: |
+          python src/python/timer.py
+        env:
+          PYTHONUNBUFFERED: "1"

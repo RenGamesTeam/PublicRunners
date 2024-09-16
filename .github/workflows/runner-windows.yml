@@ -1,0 +1,68 @@
+name: Runner-Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  RunnerCheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Check-Runner
+        id: checkrunner
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/check-runners.sh 17100 "Windows"
+
+      - name: Remove-Runner
+        if: always()
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/remove_runner.sh "${{ secrets.TOKEN }}" "Windows"
+
+      - name: Start-New-Workflow
+        if: ${{ steps.checkrunner.conclusion != 'cancelled' }} 
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/start_workflow.sh "${{ secrets.TOKEN }}" "Runner-Windows"
+
+      - name: Cancel-Workflow
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        run: |
+          chmod -R 777 *
+          ./src/ubuntu/cancel_workflow.sh "${{ secrets.TOKEN }}" "${{ github.run_id }}"
+
+  Windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner Setup
+        run: |
+          cd src/windows
+          ./setup.ps1
+
+      - name: Run
+        run: |
+          cd src/windows
+          $runnertoken = .\gen_runner_token.ps1 -token "${{ secrets.TOKEN }}" -owner "RenGamesTeam"
+          cd actions-runner
+          ./config.cmd --url https://github.com/RenGamesTeam --token $runnertoken
+          Start-Service "actions.runner.*"
+          ./run.cmd
+
+      - name: Timer
+        run: |
+          python src/python/timer.py
+        env:
+          PYTHONUNBUFFERED: "1"
