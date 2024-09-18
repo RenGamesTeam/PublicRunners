@@ -67,12 +67,10 @@ jobs:
           runnertoken=$(./gen_runner_token.sh "${{ secrets.TOKEN }}" "RenGamesTeam")
           cd actions-runner
           ./config.sh --url https://github.com/RenGamesTeam --token "$runnertoken"
-          sudo ./svc.sh install
-          sudo ./svc.sh start
-          # ./run.sh
+          sudo ./run.sh
 
-      - name: Timer
-        run: |
-          python src/python/timer.py
-        env:
-          PYTHONUNBUFFERED: "1"
+      # - name: Timer
+      #   run: |
+      #     python src/python/timer.py
+      #   env:
+      #     PYTHONUNBUFFERED: "1"

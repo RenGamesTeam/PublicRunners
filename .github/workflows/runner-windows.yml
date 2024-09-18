@@ -58,11 +58,11 @@ jobs:
           $runnertoken = .\gen_runner_token.ps1 -token "${{ secrets.TOKEN }}" -owner "RenGamesTeam"
           cd actions-runner
           ./config.cmd --url https://github.com/RenGamesTeam --token $runnertoken
-          Start-Service "actions.runner.*"
+          #Start-Service "actions.runner.*"
           ./run.cmd
 
-      - name: Timer
-        run: |
-          python src/python/timer.py
-        env:
-          PYTHONUNBUFFERED: "1"
+      # - name: Timer
+      #   run: |
+      #     python src/python/timer.py
+      #   env:
+      #     PYTHONUNBUFFERED: "1"
