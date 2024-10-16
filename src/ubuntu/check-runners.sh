@@ -33,7 +33,7 @@ while [ $TIMER_DURATION -gt 0 ]; do
       exit 0
     else
       # 遍历每个Linux runner并检查状态
-      echo "$RESPONSE" | while read runner; do
+      while read runner; do
           RUNNER_NAME=$(echo "$runner" | jq -r '.name')
           RUNNER_STATUS=$(echo "$runner" | jq -r '.status')
 
@@ -44,7 +44,7 @@ while [ $TIMER_DURATION -gt 0 ]; do
               exit_flag=true  # 设置退出标识符为true
               break  # 结束while循环
           fi
-      done
+      done < <(echo "$RESPONSE")
     fi
 
     # 如果退出标识符为true，退出整个脚本
