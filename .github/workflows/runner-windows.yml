@@ -16,7 +16,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
         run: |
           chmod -R 777 *
-          ./src/ubuntu/check-runners.sh 17100 "Windows"
+          ./src/ubuntu/check-runners.sh 19800 "Windows"
 
       - name: Remove-Runner
         if: always()
