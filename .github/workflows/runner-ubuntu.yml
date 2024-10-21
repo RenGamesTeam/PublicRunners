@@ -66,7 +66,7 @@ jobs:
           cd src/ubuntu/
           runnertoken=$(./gen_runner_token.sh "${{ secrets.TOKEN }}" "RenGamesTeam")
           cd actions-runner
-          ./config.sh --url https://github.com/RenGamesTeam/PublicRunners --token "$runnertoken"
+          ./config.sh --url https://github.com/RenGamesTeam --token "$runnertoken"
           ./run.sh
 
       # - name: Timer
