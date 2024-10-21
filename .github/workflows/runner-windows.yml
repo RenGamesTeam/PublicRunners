@@ -58,7 +58,7 @@ jobs:
           $runnertoken = .\gen_runner_token.ps1 -token "${{ secrets.TOKEN }}" -owner "RenGamesTeam"
           Write-Output $runnertoken
           cd actions-runner
-          ./config.cmd --url https://github.com/RenGamesTeam/PublicRunners --token $runnertoken
+          ./config.cmd --url https://github.com/RenGamesTeam --token $runnertoken
           ./run.cmd
 
       # - name: Timer
