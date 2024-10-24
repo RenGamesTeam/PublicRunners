@@ -42,15 +42,15 @@ jobs:
 
   Windows:
     runs-on: windows-2022
-    env:
-      ACTIONS_RUNNER_HOOK_JOB_COMPLETED: C:\cleanup.ps1
+    #env:
+    #  ACTIONS_RUNNER_HOOK_JOB_COMPLETED: C:\cleanup.ps1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         
-      - name: Cleanup Script Setup
-        run: |
-          Copy-Item ".\src\windows\cleanup.ps1" -Destination "C:\cleanup.ps1"
+      #- name: Cleanup Script Setup
+      #  run: |
+      #    Copy-Item ".\src\windows\cleanup.ps1" -Destination "C:\cleanup.ps1"
           
       - name: Runner Setup
         run: |
