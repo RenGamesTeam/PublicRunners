@@ -1,76 +1,121 @@
-name: Runner-Ubuntu
+name: Ubuntu Runner
 
+# Bootstraps a self-hosted, ephemeral Ubuntu runner for the organisation and
+# keeps a successor run queued before this one ends.
+#
+# The run is intentionally not triggered by a schedule: the watchdog workflow
+# (runner-watchdog.yml) restarts a chain that died, while a healthy chain
+# dispatches its own successor. That keeps exactly one runner job alive without
+# accumulating a queue of pending runs.
 on:
   workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Runner loop duration in seconds (1-18000)"
+        required: false
+        default: "18000"
+      poll_interval_seconds:
+        description: "Monitor polling interval in seconds"
+        required: false
+        default: "120"
+      retry_delay_seconds:
+        description: "Delay before retrying after a failed runner job"
+        required: false
+        default: "600"
+      chain_budget:
+        description: "Number of successor runs still allowed (0 = unlimited)"
+        required: false
+        default: "0"
+      runner_prefix:
+        description: "Runner name prefix"
+        required: false
+        default: "pr-ubuntu"
+      labels:
+        description: "Runner labels"
+        required: false
+        default: "self-hosted,Linux,X64"
+      dry_run:
+        description: "Test mode: hold the runner job without registering a runner"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: public-runner-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  RunnerCheck:
+  runner:
+    name: runner
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Check-Runner
-        id: checkrunner
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/check-runners.sh 19800 "Linux"
-
-      - name: Remove-Runner
-        if: always()
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/remove_runner.sh "${{ secrets.TOKEN }}" "Linux"
-
-      - name: Start-New-Workflow
-        if: ${{ steps.checkrunner.conclusion != 'cancelled' }} 
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/start_workflow.sh "${{ secrets.TOKEN }}" "Runner-Ubuntu"
-
-      - name: Cancel-Workflow
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/cancel_workflow.sh "${{ secrets.TOKEN }}" "${{ github.run_id }}"
-
-  Ubuntu:
-    runs-on: ubuntu-latest
+    timeout-minutes: 350
     env:
-      ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /cleanup.sh
+      CHAIN_ENABLED: ${{ vars.RUNNER_CHAIN_ENABLED || 'true' }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      DURATION_SECONDS: ${{ inputs.duration_seconds }}
+      ORG_NAME: ${{ github.repository_owner }}
+      RUNNER_ADMIN_TOKEN: ${{ secrets.TOKEN }}
+      RUNNER_PREFIX: ${{ inputs.runner_prefix }}
+      LABELS: ${{ inputs.labels }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      - name: Cleanup Script Setup
+      - name: Clean up stale runners
+        if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'
+        # Best effort: a stale offline runner must never block the chain.
+        continue-on-error: true
+        run: bash src/common/remove_runner.sh --prefix "${RUNNER_PREFIX}-"
+
+      - name: Run ephemeral runner loop
+        if: env.CHAIN_ENABLED != 'false'
+        env:
+          GITHUB_SERVER_URL: ${{ github.server_url }}
         run: |
-          tree
-          chmod -R 777 *
-          sudo cp ./src/ubuntu/cleanup.sh /cleanup.sh
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: no runner will be registered; holding for ${DURATION_SECONDS}s"
+            sleep "$DURATION_SECONDS"
+            exit 0
+          fi
+          bash src/ubuntu/setup.sh
+          bash src/ubuntu/run-loop.sh
 
-      - name: Runner Setup
-        run: |
-          chmod -R 777 *
-          cd src/ubuntu
-          ./setup.sh
+      - name: Chain disabled
+        if: env.CHAIN_ENABLED == 'false'
+        run: echo "RUNNER_CHAIN_ENABLED is false; skipping the runner loop"
 
-      - name: Run
-        run: |
-          chmod -R 777 *
-          cd src/ubuntu/
-          runnertoken=$(./gen_runner_token.sh "${{ secrets.TOKEN }}" "RenGamesTeam")
-          cd actions-runner
-          ./config.sh --url https://github.com/RenGamesTeam --token "$runnertoken"
-          ./run.sh
+  monitor:
+    name: monitor
+    needs: runner
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      JOB_NAME: runner
+      WORKFLOW_FILE: runner-ubuntu.yml
+      CHAIN_REF: ${{ github.ref_name }}
+      CHAIN_ENABLED: ${{ vars.RUNNER_CHAIN_ENABLED || 'true' }}
+      MAX_CONSECUTIVE_FAILURES: ${{ vars.MAX_CONSECUTIVE_FAILURES || '5' }}
+      DURATION_SECONDS: ${{ inputs.duration_seconds }}
+      POLL_INTERVAL_SECONDS: ${{ inputs.poll_interval_seconds }}
+      RETRY_DELAY_SECONDS: ${{ inputs.retry_delay_seconds }}
+      CHAIN_BUDGET: ${{ inputs.chain_budget }}
+      RUNNER_PREFIX: ${{ inputs.runner_prefix }}
+      LABELS: ${{ inputs.labels }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      # - name: Timer
-      #   run: |
-      #     python src/python/timer.py
-      #   env:
-      #     PYTHONUNBUFFERED: "1"
+      - name: Dispatch successor
+        id: chain
+        run: bash src/common/monitor.sh

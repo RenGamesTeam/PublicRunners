@@ -1,72 +1,120 @@
-name: Runner-Windows
+name: Windows Runner
 
+# Windows counterpart of runner-ubuntu.yml: bootstraps a self-hosted, ephemeral
+# Windows runner and hands over to a successor run.
 on:
   workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Runner loop duration in seconds (1-18000)"
+        required: false
+        default: "18000"
+      poll_interval_seconds:
+        description: "Monitor polling interval in seconds"
+        required: false
+        default: "120"
+      retry_delay_seconds:
+        description: "Delay before retrying after a failed runner job"
+        required: false
+        default: "600"
+      chain_budget:
+        description: "Number of successor runs still allowed (0 = unlimited)"
+        required: false
+        default: "0"
+      runner_prefix:
+        description: "Runner name prefix"
+        required: false
+        default: "pr-windows"
+      labels:
+        description: "Runner labels"
+        required: false
+        default: "self-hosted,Windows,X64"
+      dry_run:
+        description: "Test mode: hold the runner job without registering a runner"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: public-runner-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  RunnerCheck:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Check-Runner
-        id: checkrunner
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/check-runners.sh 19800 "Windows"
-
-      - name: Remove-Runner
-        if: always()
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/remove_runner.sh "${{ secrets.TOKEN }}" "Windows"
-
-      - name: Start-New-Workflow
-        if: ${{ steps.checkrunner.conclusion != 'cancelled' }} 
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/start_workflow.sh "${{ secrets.TOKEN }}" "Runner-Windows"
-
-      - name: Cancel-Workflow
-        if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
-        run: |
-          chmod -R 777 *
-          ./src/ubuntu/cancel_workflow.sh "${{ secrets.TOKEN }}" "${{ github.run_id }}"
-
-  Windows:
+  runner:
+    name: runner
     runs-on: windows-2022
-    #env:
-    #  ACTIONS_RUNNER_HOOK_JOB_COMPLETED: C:\cleanup.ps1
+    timeout-minutes: 350
+    env:
+      CHAIN_ENABLED: ${{ vars.RUNNER_CHAIN_ENABLED || 'true' }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      DURATION_SECONDS: ${{ inputs.duration_seconds }}
+      ORG_NAME: ${{ github.repository_owner }}
+      RUNNER_ADMIN_TOKEN: ${{ secrets.TOKEN }}
+      RUNNER_PREFIX: ${{ inputs.runner_prefix }}
+      LABELS: ${{ inputs.labels }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        
-      #- name: Cleanup Script Setup
-      #  run: |
-      #    Copy-Item ".\src\windows\cleanup.ps1" -Destination "C:\cleanup.ps1"
-          
-      - name: Runner Setup
-        run: |
-          cd src/windows
-          ./setup.ps1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
-      - name: Run
-        run: |
-          cd src/windows
-          $runnertoken = .\gen_runner_token.ps1 -token "${{ secrets.TOKEN }}" -owner "RenGamesTeam"
-          cd actions-runner
-          ./config.cmd --url https://github.com/RenGamesTeam --token $runnertoken
-          ./run.cmd
+      - name: Clean up stale runners
+        if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'
+        # Best effort: a stale offline runner must never block the chain.
+        continue-on-error: true
+        run: bash src/common/remove_runner.sh --prefix "${RUNNER_PREFIX}-"
 
-      # - name: Timer
-      #   run: |
-      #     python src/python/timer.py
-      #   env:
-      #     PYTHONUNBUFFERED: "1"
+      - name: Run ephemeral runner loop
+        if: env.CHAIN_ENABLED != 'false'
+        shell: pwsh
+        env:
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: |
+          if ($env:DRY_RUN -eq 'true') {
+            Write-Host "Dry run: no runner will be registered; holding for $env:DURATION_SECONDS seconds"
+            Start-Sleep -Seconds ([int]$env:DURATION_SECONDS)
+            exit 0
+          }
+          & "$env:GITHUB_WORKSPACE/src/windows/setup.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:GITHUB_WORKSPACE/src/windows/run-loop.ps1"
+          exit $LASTEXITCODE
+
+      - name: Chain disabled
+        if: env.CHAIN_ENABLED == 'false'
+        shell: pwsh
+        run: Write-Host 'RUNNER_CHAIN_ENABLED is false; skipping the runner loop'
+
+  monitor:
+    name: monitor
+    needs: runner
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      JOB_NAME: runner
+      WORKFLOW_FILE: runner-windows.yml
+      CHAIN_REF: ${{ github.ref_name }}
+      CHAIN_ENABLED: ${{ vars.RUNNER_CHAIN_ENABLED || 'true' }}
+      MAX_CONSECUTIVE_FAILURES: ${{ vars.MAX_CONSECUTIVE_FAILURES || '5' }}
+      DURATION_SECONDS: ${{ inputs.duration_seconds }}
+      POLL_INTERVAL_SECONDS: ${{ inputs.poll_interval_seconds }}
+      RETRY_DELAY_SECONDS: ${{ inputs.retry_delay_seconds }}
+      CHAIN_BUDGET: ${{ inputs.chain_budget }}
+      RUNNER_PREFIX: ${{ inputs.runner_prefix }}
+      LABELS: ${{ inputs.labels }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Dispatch successor
+        id: chain
+        run: bash src/common/monitor.sh

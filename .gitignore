@@ -1,0 +1,9 @@
+# Downloaded Actions runner binaries
+src/ubuntu/actions-runner/
+src/windows/actions-runner/
+
+# Local test tooling and scratch files
+.tools/
+tests/tmp*/
+__pycache__/
+*.pyc

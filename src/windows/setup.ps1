@@ -1,11 +1,66 @@
-# Create a folder under the drive root
-mkdir actions-runner; cd actions-runner
+# Downloads and verifies the GitHub Actions runner for Windows.
+#
+# The version is pinned and the archive checksum is verified before extraction.
+# Already extracted runners are left untouched, so the script is idempotent.
+#
+# Environment (parameters win when supplied):
+#   RUNNER_VERSION  Runner version (default: 2.338.2)
+#   RUNNER_SHA256   Override the expected checksum
+#   RUNNER_DIR      Install directory (default: <script dir>\actions-runner)
 
-# Download the latest runner package
-Invoke-WebRequest -Uri https://github.com/actions/runner/releases/download/v2.320.0/actions-runner-win-x64-2.320.0.zip -OutFile actions-runner-win-x64-2.320.0.zip
+[CmdletBinding()]
+param(
+  [string]$Version = $(if ($env:RUNNER_VERSION) { $env:RUNNER_VERSION } else { '2.338.2' }),
+  [string]$RunnerDir = $(if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $PSScriptRoot 'actions-runner' }),
+  [string]$Sha256 = $env:RUNNER_SHA256
+)
 
-# Optional: Validate the hash
-if((Get-FileHash -Path actions-runner-win-x64-2.320.0.zip -Algorithm SHA256).Hash.ToUpper() -ne '9eb133e8cb25e8319f1cbef3578c9ec5428a7af7c6ec0202ba6f9a9fddf663c0'.ToUpper()){ throw 'Computed checksum did not match' }
+. (Join-Path $PSScriptRoot 'lib.ps1')
 
-# Extract the installer
-Add-Type -AssemblyName System.IO.Compression.FileSystem ; [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/actions-runner-win-x64-2.320.0.zip", "$PWD")
+$checksums = @{
+  '2.338.2' = 'a1f17aa987fc8158bc7521d284912267a0d01b7c2c4684b33c86783b5e8221cc'
+}
+
+if (-not $Sha256) {
+  $Sha256 = $checksums[$Version]
+}
+if (-not $Sha256) {
+  throw "No pinned checksum for runner $Version; set RUNNER_SHA256."
+}
+if ($Sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+  throw 'RUNNER_SHA256 must be a 64 character hex digest.'
+}
+
+if ((Test-Path (Join-Path $RunnerDir 'config.cmd')) -and (Test-Path (Join-Path $RunnerDir 'run.cmd'))) {
+  Write-Log "Runner already present at $RunnerDir; skipping download"
+  exit 0
+}
+
+$archive = "actions-runner-win-x64-$Version.zip"
+$url = "https://github.com/actions/runner/releases/download/v$Version/$archive"
+$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+try {
+  $zip = Join-Path $tempDir $archive
+  Write-Log "Downloading $url"
+  Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+
+  Write-Log 'Verifying SHA256 checksum'
+  $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -ne $Sha256.ToLowerInvariant()) {
+    throw "Checksum verification failed for $archive (expected $Sha256, got $actual)."
+  }
+
+  New-Item -ItemType Directory -Path $RunnerDir -Force | Out-Null
+  Write-Log "Extracting runner $Version into $RunnerDir"
+  Expand-Archive -Path $zip -DestinationPath $RunnerDir -Force
+
+  if (-not (Test-Path (Join-Path $RunnerDir 'run.cmd'))) {
+    throw 'Runner archive did not contain run.cmd.'
+  }
+  Write-Log "Runner $Version is ready"
+}
+finally {
+  Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+}
