@@ -65,7 +65,10 @@ jobs:
       - name: Clean up stale runners
         if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'
         # Best effort: a stale offline runner must never block the chain.
+        # bash (Git for Windows) is available on the Windows images; using the
+        # bash shell keeps `${RUNNER_PREFIX}` from being expanded by PowerShell.
         continue-on-error: true
+        shell: bash
         run: bash src/common/remove_runner.sh --prefix "${RUNNER_PREFIX}-"
 
       - name: Run ephemeral runner loop
@@ -74,15 +77,18 @@ jobs:
         env:
           GITHUB_SERVER_URL: ${{ github.server_url }}
         run: |
+          $ErrorActionPreference = 'Stop'
           if ($env:DRY_RUN -eq 'true') {
             Write-Host "Dry run: no runner will be registered; holding for $env:DURATION_SECONDS seconds"
             Start-Sleep -Seconds ([int]$env:DURATION_SECONDS)
             exit 0
           }
+          # Both scripts throw on failure; with $ErrorActionPreference = 'Stop'
+          # the step fails instead of silently continuing. Do not gate on
+          # $LASTEXITCODE here: it is $null after a PowerShell script runs,
+          # and `$null -ne 0` is true, which skipped run-loop.ps1 entirely.
           & "$env:GITHUB_WORKSPACE/src/windows/setup.ps1"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$env:GITHUB_WORKSPACE/src/windows/run-loop.ps1"
-          exit $LASTEXITCODE
 
       - name: Chain disabled
         if: env.CHAIN_ENABLED == 'false'
