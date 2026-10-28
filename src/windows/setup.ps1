@@ -3,20 +3,28 @@
 # The version is pinned and the archive checksum is verified before extraction.
 # Already extracted runners are left untouched, so the script is idempotent.
 #
+# Note: the environment variables are deliberately NOT named RUNNER_VERSION /
+# RUNNER_ARCH. GitHub Actions already exports RUNNER_ARCH (for example "X64")
+# into every step; reusing such names makes the download depend on the runner
+# image instead of the values this repository pins.
+#
 # Environment (parameters win when supplied):
-#   RUNNER_VERSION  Runner version (default: 2.338.2)
-#   RUNNER_SHA256   Override the expected checksum
-#   RUNNER_DIR      Install directory (default: <script dir>\actions-runner)
+#   RUNNER_PACKAGE_VERSION  Runner version (default: 2.338.2)
+#   RUNNER_PACKAGE_SHA256   Override the expected checksum
+#   RUNNER_DIR              Install directory (default: <script dir>\actions-runner)
 
 [CmdletBinding()]
 param(
-  [string]$Version = $(if ($env:RUNNER_VERSION) { $env:RUNNER_VERSION } else { '2.338.2' }),
+  [string]$Version = $(if ($env:RUNNER_PACKAGE_VERSION) { $env:RUNNER_PACKAGE_VERSION } else { '2.338.2' }),
   [string]$RunnerDir = $(if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $PSScriptRoot 'actions-runner' }),
-  [string]$Sha256 = $env:RUNNER_SHA256
+  [string]$Sha256 = $env:RUNNER_PACKAGE_SHA256
 )
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
 
+$Version = $Version.Trim().TrimStart('v')
+
+# Windows runners are x64; the win-arm64 archive is not used here.
 $checksums = @{
   '2.338.2' = 'a1f17aa987fc8158bc7521d284912267a0d01b7c2c4684b33c86783b5e8221cc'
 }
@@ -25,10 +33,10 @@ if (-not $Sha256) {
   $Sha256 = $checksums[$Version]
 }
 if (-not $Sha256) {
-  throw "No pinned checksum for runner $Version; set RUNNER_SHA256."
+  throw "No pinned checksum for runner $Version; set RUNNER_PACKAGE_SHA256."
 }
 if ($Sha256 -notmatch '^[0-9a-fA-F]{64}$') {
-  throw 'RUNNER_SHA256 must be a 64 character hex digest.'
+  throw 'RUNNER_PACKAGE_SHA256 must be a 64 character hex digest.'
 }
 
 if ((Test-Path (Join-Path $RunnerDir 'config.cmd')) -and (Test-Path (Join-Path $RunnerDir 'run.cmd'))) {

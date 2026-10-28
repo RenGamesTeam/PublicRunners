@@ -271,10 +271,18 @@ run env RUNNER_DIR="$fake_runner" bash src/ubuntu/setup.sh
 assert_exit "skips an already installed runner" 0 "$RC"
 assert_contains "says the runner is already present" "already present" "$(cat "$TMP/stderr")"
 
-run env RUNNER_VERSION=9.9.9 bash src/ubuntu/setup.sh
+run env RUNNER_ARCH=X64 RUNNER_DIR="$fake_runner" bash src/ubuntu/setup.sh
+assert_exit "ignores the GitHub-provided RUNNER_ARCH" 0 "$RC"
+assert_contains "still skips an installed runner with RUNNER_ARCH set" "already present" "$(cat "$TMP/stderr")"
+
+run env RUNNER_PACKAGE_ARCH=arm64 RUNNER_DIR="$fake_runner" bash src/ubuntu/setup.sh
+assert_exit "pins an arm64 checksum" 0 "$RC"
+assert_contains "skips an installed arm64 runner" "already present" "$(cat "$TMP/stderr")"
+
+run env RUNNER_PACKAGE_VERSION=9.9.9 bash src/ubuntu/setup.sh
 assert_exit "refuses a version without a pinned checksum" 1 "$RC"
 
-run env RUNNER_VERSION=9.9.9 RUNNER_SHA256=nothex bash src/ubuntu/setup.sh
+run env RUNNER_PACKAGE_VERSION=9.9.9 RUNNER_PACKAGE_SHA256=nothex bash src/ubuntu/setup.sh
 assert_exit "rejects an invalid checksum" 1 "$RC"
 
 echo "watchdog.sh"
