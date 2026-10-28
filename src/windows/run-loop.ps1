@@ -12,6 +12,12 @@
 #   LABELS              Runner labels (default: self-hosted,Windows,X64)
 #   RUNNER_DIR          Runner install directory (default: <script dir>\actions-runner)
 #   GITHUB_SERVER_URL   GitHub server URL (default: https://github.com)
+#   RUNNER_LOG_TO_STDOUT
+#                       "true" keeps the inner runner's console output in this
+#                       (public) step log. The default "false" writes it to
+#                       <runner dir>\_diag\console-<name>.log instead, so job
+#                       names from other repositories never show up in a public
+#                       run log.
 
 [CmdletBinding()]
 param()
@@ -33,6 +39,7 @@ $labels = Get-EnvOrDefault 'LABELS' 'self-hosted,Windows,X64'
 $runnerDir = Get-EnvOrDefault 'RUNNER_DIR' (Join-Path $PSScriptRoot 'actions-runner')
 $serverUrl = (Get-EnvOrDefault 'GITHUB_SERVER_URL' 'https://github.com').TrimEnd('/')
 $runId = Get-EnvOrDefault 'GITHUB_RUN_ID' 'local'
+$logToStdout = (Get-EnvOrDefault 'RUNNER_LOG_TO_STDOUT' 'false') -eq 'true'
 
 if (-not $org) { throw 'ORG_NAME is required.' }
 if (-not $adminToken) { throw 'RUNNER_ADMIN_TOKEN is required.' }
@@ -104,14 +111,36 @@ while ($true) {
 
   Write-Log "Runner '$runnerName' is waiting for a job (up to ${remaining}s)"
   $timeoutMs = [int]($remaining * 1000)
-  $process = Start-Process -FilePath (Join-Path $runnerDir 'run.cmd') -WorkingDirectory $runnerDir -PassThru -NoNewWindow
+  $consoleOut = Join-Path $runnerDir "_diag\console-$runnerName.out.log"
+  $consoleErr = Join-Path $runnerDir "_diag\console-$runnerName.err.log"
+  New-Item -ItemType Directory -Path (Join-Path $runnerDir '_diag') -Force | Out-Null
+
+  $startArgs = @{
+    FilePath         = (Join-Path $runnerDir 'run.cmd')
+    WorkingDirectory = $runnerDir
+    PassThru         = $true
+    NoNewWindow      = $true
+  }
+  if (-not $logToStdout) {
+    # The runner prints the name and result of every job it processes. This run
+    # is public, so keep that output on the ephemeral machine instead of the
+    # step log (the file disappears with the machine).
+    $startArgs.RedirectStandardOutput = $consoleOut
+    $startArgs.RedirectStandardError = $consoleErr
+  }
+  $process = Start-Process @startArgs
   $finished = $process.WaitForExit($timeoutMs)
 
   if ($finished) {
     Write-Log "Runner '$runnerName' finished (exit code $($process.ExitCode))"
   }
   else {
-    Write-Log "Runner '$runnerName' reached the time budget and was stopped"
+    if ($logToStdout) {
+      Write-Log "Runner '$runnerName' reached the time budget and was stopped"
+    }
+    else {
+      Write-Log "Runner '$runnerName' reached the time budget and was stopped (console log: $consoleOut)"
+    }
     & taskkill.exe /T /F /PID $process.Id 2>&1 | Out-Null
     $process.WaitForExit(30000) | Out-Null
 

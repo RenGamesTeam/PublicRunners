@@ -61,6 +61,8 @@ jobs:
       RUNNER_ADMIN_TOKEN: ${{ secrets.TOKEN }}
       RUNNER_PREFIX: ${{ inputs.runner_prefix }}
       LABELS: ${{ inputs.labels }}
+      # Keep the inner runner's job names out of this public run log.
+      RUNNER_LOG_TO_STDOUT: ${{ vars.RUNNER_LOG_TO_STDOUT || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

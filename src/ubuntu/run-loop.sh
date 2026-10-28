@@ -19,6 +19,12 @@
 #   LABELS              Runner labels (default: self-hosted,Linux,X64)
 #   RUNNER_DIR          Runner install directory (default: <script dir>/actions-runner)
 #   GITHUB_SERVER_URL   GitHub server URL (default: https://github.com)
+#   RUNNER_LOG_TO_STDOUT
+#                       "true" keeps the inner runner's console output in this
+#                       (public) step log. The default "false" writes it to
+#                       <runner dir>/_diag/console-<name>.log instead, so job
+#                       names from other repositories never show up in a public
+#                       run log.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -34,6 +40,7 @@ LABELS=${LABELS:-self-hosted,Linux,X64}
 RUNNER_DIR=${RUNNER_DIR:-${SCRIPT_DIR}/actions-runner}
 SERVER_URL=${GITHUB_SERVER_URL:-https://github.com}
 RUN_ID=${GITHUB_RUN_ID:-local}
+RUNNER_LOG_TO_STDOUT=${RUNNER_LOG_TO_STDOUT:-false}
 
 is_uint "$DURATION_SECONDS" || die "DURATION_SECONDS must be a non-negative integer"
 (( DURATION_SECONDS >= 1 && DURATION_SECONDS <= 18000 )) \
@@ -96,16 +103,32 @@ while :; do
   failure_streak=0
 
   log "Runner '${runner_name}' is waiting for a job (up to ${remaining}s)"
+  console_log="${RUNNER_DIR}/_diag/console-${runner_name}.log"
+  mkdir -p "${RUNNER_DIR}/_diag"
   set +e
-  (
-    cd "$RUNNER_DIR"
-    timeout --signal=TERM --kill-after=30 "$remaining" ./run.sh
-  )
+  if [[ $RUNNER_LOG_TO_STDOUT == "true" ]]; then
+    (
+      cd "$RUNNER_DIR"
+      timeout --signal=TERM --kill-after=30 "$remaining" ./run.sh
+    )
+  else
+    # The runner prints the name and result of every job it processes. This run
+    # is public, so keep that output on the ephemeral machine instead of the
+    # step log (the file disappears with the machine).
+    (
+      cd "$RUNNER_DIR"
+      timeout --signal=TERM --kill-after=30 "$remaining" ./run.sh
+    ) >>"$console_log" 2>&1
+  fi
   rc=$?
   set -e
 
   if (( rc != 0 )); then
-    log "Runner '${runner_name}' stopped with exit code ${rc}"
+    if [[ $RUNNER_LOG_TO_STDOUT == "true" ]]; then
+      log "Runner '${runner_name}' stopped with exit code ${rc}"
+    else
+      log "Runner '${runner_name}' stopped with exit code ${rc} (console log: ${console_log})"
+    fi
     (
       cd "$RUNNER_DIR"
       ./config.sh remove --token "$registration_token"
