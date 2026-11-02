@@ -1,0 +1,44 @@
+name: Network smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: network-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  network:
+    name: network
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Tailscale and Xray
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TS_TAGS: ${{ vars.TS_TAGS }}
+          XRAY_SOCKS_PASSWORD: ${{ secrets.XRAY_SOCKS_PASSWORD }}
+        run: sudo -E bash src/ubuntu/setup-network.sh
+
+      - name: Probe the SOCKS5 proxy through the tailnet address
+        env:
+          XRAY_SOCKS_PASSWORD: ${{ secrets.XRAY_SOCKS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ts_ip=$(sudo tailscale ip -4 | head -n 1)
+          echo "tailnet address: ${ts_ip}"
+          ss -lnt | grep ':10808' || echo "no listener on 10808"
+          password=${XRAY_SOCKS_PASSWORD:-adac824bc7f80b7f77bfbed7b90c1967855b22dd6cca1eeb}
+          curl --silent --show-error --max-time 30 \
+            --proxy "socks5h://pc:${password}@${ts_ip}:10808" \
+            https://api.github.com/rate_limit -o /dev/null
+          echo "SOCKS5 proxy via ${ts_ip}:10808 works"
