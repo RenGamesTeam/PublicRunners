@@ -36,6 +36,12 @@ TS_HOSTNAME=${TS_HOSTNAME:-"pr-ubuntu-${GITHUB_RUN_ID:-local}"}
 XRAY_CONFIG=${XRAY_CONFIG:-/usr/local/etc/xray/config.json}
 XRAY_SOCKS_PORT=${XRAY_SOCKS_PORT:-10808}
 
+# Tailscale refuses to sign in an OAuth client without at least one tag:
+# "oauth authkeys require --advertise-tags".
+if [[ -z $TS_TAGS ]]; then
+  die "TS_TAGS must name at least one tag owned by the OAuth client (for example tag:ci); OAuth auth keys cannot be untagged"
+fi
+
 (( EUID == 0 )) || die "run this script as root: sudo -E bash $0"
 require_cmd curl
 require_cmd jq
@@ -57,8 +63,6 @@ up_args=(
 )
 if [[ -n $TS_TAGS ]]; then
   up_args+=("--advertise-tags=${TS_TAGS}")
-else
-  log "WARN: TS_TAGS is not set; OAuth clients normally require a tag (for example tag:ci)"
 fi
 
 for attempt in 1 2 3 4 5; do

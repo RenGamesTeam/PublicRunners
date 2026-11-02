@@ -77,17 +77,21 @@ jobs:
 
       - name: Set up Tailscale and Xray
         # Runs before the Actions runner is configured. Dry runs stay cheap and
-        # the step is skipped until both OAuth secrets exist.
+        # the step is skipped until the OAuth client and its tag are configured.
         if: >-
           env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true' &&
-          env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != ''
+          env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != '' &&
+          env.TS_TAGS != ''
         run: sudo -E bash src/ubuntu/setup-network.sh
 
       - name: Network setup skipped
-        if: env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == ''
+        if: >-
+          env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == '' ||
+          env.TS_TAGS == ''
         run: >-
-          echo "::warning::TS_OAUTH_CLIENT_ID/TS_OAUTH_SECRET are not configured;
-          Tailscale and Xray were not started for this run."
+          echo "::warning::Tailscale needs TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET and
+          TS_TAGS (a tag owned by the OAuth client); Tailscale and Xray were not
+          started for this run."
 
       - name: Clean up stale runners
         if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'

@@ -358,6 +358,10 @@ assert_exit "gives up when tailscale has no address" 1 "$RC"
 run env -u TS_OAUTH_CLIENT_ID -u TS_OAUTH_SECRET bash src/ubuntu/setup-network.sh
 assert_exit "network setup refuses to run without the oauth secrets" 1 "$RC"
 
+run env -u TS_TAGS TS_OAUTH_CLIENT_ID=client TS_OAUTH_SECRET=secret \
+  bash src/ubuntu/setup-network.sh
+assert_exit "network setup refuses an untagged oauth client" 1 "$RC"
+
 echo "static checks"
 
 run bash -c 'for f in src/common/*.sh src/ubuntu/*.sh tests/*.sh; do bash -n "$f" || exit 1; done'
@@ -372,6 +376,8 @@ assert_exit "ubuntu workflow reads the tailscale oauth secret" 0 "$?"
 awk '/setup-network\.sh/ {net=NR} /Run ephemeral runner loop/ {run=NR} END {exit !(net && run && net < run)}' \
   .github/workflows/runner-ubuntu.yml
 assert_exit "network setup runs before the runner is configured" 0 "$?"
+grep -q "env.TS_TAGS != ''" .github/workflows/runner-ubuntu.yml
+assert_exit "ubuntu workflow requires a tailscale tag" 0 "$?"
 
 grep -q 'attempt -le 3' src/windows/run-loop.ps1
 assert_exit "windows run loop retries the runner removal" 0 "$?"
