@@ -67,7 +67,6 @@ jobs:
       # secrets are absent the network setup step is skipped (see below).
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      TS_TAGS: ${{ vars.TS_TAGS }}
       XRAY_SOCKS_PASSWORD: ${{ secrets.XRAY_SOCKS_PASSWORD }}
     steps:
       - name: Checkout
@@ -83,20 +82,16 @@ jobs:
         # shell that runs the Tailscale and Xray installers.
         if: >-
           env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true' &&
-          env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != '' &&
-          env.TS_TAGS != ''
+          env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != ''
         run: >-
           sudo --preserve-env=TS_OAUTH_CLIENT_ID,TS_OAUTH_SECRET,TS_TAGS,TS_HOSTNAME,XRAY_CONFIG,XRAY_SOCKS_PORT,XRAY_SOCKS_USER,XRAY_SOCKS_PASSWORD
           bash src/ubuntu/setup-network.sh
 
       - name: Network setup skipped
-        if: >-
-          env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == '' ||
-          env.TS_TAGS == ''
+        if: env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == ''
         run: >-
-          echo "::warning::Tailscale needs TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET and
-          TS_TAGS (a tag owned by the OAuth client); Tailscale and Xray were not
-          started for this run."
+          echo "::warning::TS_OAUTH_CLIENT_ID/TS_OAUTH_SECRET are not configured;
+          Tailscale and Xray were not started for this run."
 
       - name: Clean up stale runners
         if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'

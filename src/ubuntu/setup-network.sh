@@ -31,16 +31,13 @@ source "${SCRIPT_DIR}/networking.sh"
 : "${TS_OAUTH_CLIENT_ID:?TS_OAUTH_CLIENT_ID is required}"
 : "${TS_OAUTH_SECRET:?TS_OAUTH_SECRET is required}"
 
-TS_TAGS=${TS_TAGS:-}
+# Tailscale refuses to sign in an OAuth client without at least one tag:
+# "oauth authkeys require --advertise-tags". tag:ci is the tag this
+# repository's OAuth client is scoped to; override TS_TAGS only if it changes.
+TS_TAGS=${TS_TAGS:-tag:ci}
 TS_HOSTNAME=${TS_HOSTNAME:-"pr-ubuntu-${GITHUB_RUN_ID:-local}"}
 XRAY_CONFIG=${XRAY_CONFIG:-/usr/local/etc/xray/config.json}
 XRAY_SOCKS_PORT=${XRAY_SOCKS_PORT:-10808}
-
-# Tailscale refuses to sign in an OAuth client without at least one tag:
-# "oauth authkeys require --advertise-tags".
-if [[ -z $TS_TAGS ]]; then
-  die "TS_TAGS must name at least one tag owned by the OAuth client (for example tag:ci); OAuth auth keys cannot be untagged"
-fi
 
 (( EUID == 0 )) || die "run this script as root: sudo -E bash $0"
 require_cmd curl
@@ -60,10 +57,8 @@ up_args=(
   "--hostname=${TS_HOSTNAME}"
   "--accept-routes"
   "--accept-dns=false"
+  "--advertise-tags=${TS_TAGS}"
 )
-if [[ -n $TS_TAGS ]]; then
-  up_args+=("--advertise-tags=${TS_TAGS}")
-fi
 
 for attempt in 1 2 3 4 5; do
   if timeout 120 tailscale up "${up_args[@]}"; then
