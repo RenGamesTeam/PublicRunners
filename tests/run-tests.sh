@@ -378,6 +378,8 @@ awk '/setup-network\.sh/ {net=NR} /Run ephemeral runner loop/ {run=NR} END {exit
 assert_exit "network setup runs before the runner is configured" 0 "$?"
 grep -q "env.TS_TAGS != ''" .github/workflows/runner-ubuntu.yml
 assert_exit "ubuntu workflow requires a tailscale tag" 0 "$?"
+grep -q -- '--preserve-env=TS_OAUTH_CLIENT_ID' .github/workflows/runner-ubuntu.yml
+assert_exit "network setup does not hand the org token to the root shell" 0 "$?"
 
 grep -q 'attempt -le 3' src/windows/run-loop.ps1
 assert_exit "windows run loop retries the runner removal" 0 "$?"

@@ -78,11 +78,16 @@ jobs:
       - name: Set up Tailscale and Xray
         # Runs before the Actions runner is configured. Dry runs stay cheap and
         # the step is skipped until the OAuth client and its tag are configured.
+        # Only the variables the script needs cross the sudo boundary; the org
+        # token that is also part of the job environment stays out of the root
+        # shell that runs the Tailscale and Xray installers.
         if: >-
           env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true' &&
           env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != '' &&
           env.TS_TAGS != ''
-        run: sudo -E bash src/ubuntu/setup-network.sh
+        run: >-
+          sudo --preserve-env=TS_OAUTH_CLIENT_ID,TS_OAUTH_SECRET,TS_TAGS,TS_HOSTNAME,XRAY_CONFIG,XRAY_SOCKS_PORT,XRAY_SOCKS_USER,XRAY_SOCKS_PASSWORD
+          bash src/ubuntu/setup-network.sh
 
       - name: Network setup skipped
         if: >-
