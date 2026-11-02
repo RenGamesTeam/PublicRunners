@@ -63,11 +63,31 @@ jobs:
       LABELS: ${{ inputs.labels }}
       # Keep the inner runner's job names out of this public run log.
       RUNNER_LOG_TO_STDOUT: ${{ vars.RUNNER_LOG_TO_STDOUT || 'false' }}
+      # Tailscale OAuth client used by src/ubuntu/setup-network.sh. When the
+      # secrets are absent the network setup step is skipped (see below).
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      TS_TAGS: ${{ vars.TS_TAGS }}
+      XRAY_SOCKS_PASSWORD: ${{ secrets.XRAY_SOCKS_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+
+      - name: Set up Tailscale and Xray
+        # Runs before the Actions runner is configured. Dry runs stay cheap and
+        # the step is skipped until both OAuth secrets exist.
+        if: >-
+          env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true' &&
+          env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != ''
+        run: sudo -E bash src/ubuntu/setup-network.sh
+
+      - name: Network setup skipped
+        if: env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == ''
+        run: >-
+          echo "::warning::TS_OAUTH_CLIENT_ID/TS_OAUTH_SECRET are not configured;
+          Tailscale and Xray were not started for this run."
 
       - name: Clean up stale runners
         if: env.CHAIN_ENABLED != 'false' && env.DRY_RUN != 'true'

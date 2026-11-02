@@ -314,10 +314,64 @@ assert_eq "does not restart a chain that keeps failing" "0" "$(dispatch_count)"
 run env CHAIN_ENABLED=false bash src/common/watchdog.sh
 assert_eq "honours the kill switch" "0" "$(dispatch_count)"
 
+echo "networking.sh"
+
+run bash -c 'source src/ubuntu/networking.sh; render_xray_config 100.64.0.7'
+assert_exit "renders an xray config" 0 "$RC"
+assert_eq "xray logs at warning level" "warning" "$(jq -r '.log.loglevel' "$TMP/stdout")"
+assert_eq "xray socks inbound listens on the tailscale address" "100.64.0.7" "$(jq -r '.inbounds[0].listen' "$TMP/stdout")"
+assert_eq "xray socks inbound uses port 10808" "10808" "$(jq -r '.inbounds[0].port' "$TMP/stdout")"
+assert_eq "xray socks inbound speaks socks" "socks" "$(jq -r '.inbounds[0].protocol' "$TMP/stdout")"
+assert_eq "xray socks inbound requires a password" "password" "$(jq -r '.inbounds[0].settings.auth' "$TMP/stdout")"
+assert_eq "xray socks user defaults to pc" "pc" "$(jq -r '.inbounds[0].settings.accounts[0].user' "$TMP/stdout")"
+assert_eq "xray socks password defaults to the supplied value" \
+  "adac824bc7f80b7f77bfbed7b90c1967855b22dd6cca1eeb" \
+  "$(jq -r '.inbounds[0].settings.accounts[0].pass' "$TMP/stdout")"
+assert_eq "xray socks allows udp" "true" "$(jq -r '.inbounds[0].settings.udp' "$TMP/stdout")"
+assert_eq "xray uses a direct outbound" "freedom" "$(jq -r '.outbounds[0].protocol' "$TMP/stdout")"
+assert_eq "xray tags that outbound direct" "direct" "$(jq -r '.outbounds[0].tag' "$TMP/stdout")"
+
+run env XRAY_SOCKS_USER=alice XRAY_SOCKS_PASSWORD=s3cret XRAY_SOCKS_PORT=1080 \
+  bash -c 'source src/ubuntu/networking.sh; render_xray_config 100.64.0.8'
+assert_exit "renders with environment overrides" 0 "$RC"
+assert_eq "honours a custom socks user" "alice" "$(jq -r '.inbounds[0].settings.accounts[0].user' "$TMP/stdout")"
+assert_eq "honours a custom socks port" "1080" "$(jq -r '.inbounds[0].port' "$TMP/stdout")"
+
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/tailscale" <<'SH'
+#!/usr/bin/env bash
+echo 100.64.0.9
+SH
+chmod +x "$TMP/bin/tailscale"
+run env PATH="$TMP/bin:$PATH" bash -c 'source src/ubuntu/networking.sh; wait_for_tailscale_ip 2'
+assert_exit "reads the tailscale ipv4 address" 0 "$RC"
+assert_eq "prints the tailscale ipv4 address" "100.64.0.9" "$(cat "$TMP/stdout")"
+
+cat > "$TMP/bin/tailscale" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+chmod +x "$TMP/bin/tailscale"
+run env PATH="$TMP/bin:$PATH" bash -c 'source src/ubuntu/networking.sh; wait_for_tailscale_ip 1'
+assert_exit "gives up when tailscale has no address" 1 "$RC"
+
+run env -u TS_OAUTH_CLIENT_ID -u TS_OAUTH_SECRET bash src/ubuntu/setup-network.sh
+assert_exit "network setup refuses to run without the oauth secrets" 1 "$RC"
+
 echo "static checks"
 
 run bash -c 'for f in src/common/*.sh src/ubuntu/*.sh tests/*.sh; do bash -n "$f" || exit 1; done'
 assert_exit "all shell scripts parse" 0 "$RC"
+
+grep -q 'src/ubuntu/setup-network.sh' .github/workflows/runner-ubuntu.yml
+assert_exit "ubuntu workflow prepares the network" 0 "$?"
+grep -q 'secrets.TS_OAUTH_CLIENT_ID' .github/workflows/runner-ubuntu.yml
+assert_exit "ubuntu workflow reads the tailscale oauth client id" 0 "$?"
+grep -q 'secrets.TS_OAUTH_SECRET' .github/workflows/runner-ubuntu.yml
+assert_exit "ubuntu workflow reads the tailscale oauth secret" 0 "$?"
+awk '/setup-network\.sh/ {net=NR} /Run ephemeral runner loop/ {run=NR} END {exit !(net && run && net < run)}' \
+  .github/workflows/runner-ubuntu.yml
+assert_exit "network setup runs before the runner is configured" 0 "$?"
 
 grep -q 'attempt -le 3' src/windows/run-loop.ps1
 assert_exit "windows run loop retries the runner removal" 0 "$?"
