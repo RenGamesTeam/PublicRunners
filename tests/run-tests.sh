@@ -319,6 +319,11 @@ echo "static checks"
 run bash -c 'for f in src/common/*.sh src/ubuntu/*.sh tests/*.sh; do bash -n "$f" || exit 1; done'
 assert_exit "all shell scripts parse" 0 "$RC"
 
+grep -q 'attempt -le 3' src/windows/run-loop.ps1
+assert_exit "windows run loop retries the runner removal" 0 "$?"
+awk '/run-loop\.ps1/ {seen=1} seen && /^ *exit 0/ {ok=1} END {exit !ok}' .github/workflows/runner-windows.yml
+assert_exit "windows step exits 0 after the loop" 0 "$?"
+
 if [[ -x .tools/actionlint/actionlint.exe ]]; then
   run .tools/actionlint/actionlint.exe -no-color -oneline .github/workflows/runner-ubuntu.yml .github/workflows/runner-windows.yml .github/workflows/runner-watchdog.yml
   assert_exit "workflows pass actionlint" 0 "$RC"
@@ -339,6 +344,32 @@ if command -v powershell.exe >/dev/null 2>&1; then
   assert_exit "windows lib requests a registration token" 0 "$RC"
   assert_eq "windows lib prints only the token" "tok-from-windows" \
     "$(tr -d '\r' < "$TMP/stdout" | sed '/^$/d')"
+
+  # Regression: the pwsh shell wrapper ends with `exit $LASTEXITCODE`, so a
+  # best-effort native command that failed inside the loop (for example
+  # `config.cmd remove` for a busy runner) used to turn a successful runner
+  # step into a failure. The step now ends with `exit 0`; real errors throw.
+  mkdir -p tests/tmp
+  cat > tests/tmp/step-ok.ps1 <<'PS1'
+$global:LASTEXITCODE = 7
+exit 0
+PS1
+  cat > tests/tmp/wrapper-ok.ps1 <<'PS1'
+. (Join-Path $PSScriptRoot 'step-ok.ps1')
+if ((Test-Path variable:\LASTEXITCODE)) { exit $LASTEXITCODE }
+PS1
+  run powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/tmp/wrapper-ok.ps1
+  assert_exit "windows step exit 0 overrides a failed native command" 0 "$RC"
+
+  cat > tests/tmp/step-fail.ps1 <<'PS1'
+$global:LASTEXITCODE = 7
+PS1
+  cat > tests/tmp/wrapper-fail.ps1 <<'PS1'
+. (Join-Path $PSScriptRoot 'step-fail.ps1')
+if ((Test-Path variable:\LASTEXITCODE)) { exit $LASTEXITCODE }
+PS1
+  run powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/tmp/wrapper-fail.ps1
+  assert_exit "windows step still fails on a leftover exit code without the guard" 7 "$RC"
 else
   echo "  skip PowerShell syntax check"
 fi

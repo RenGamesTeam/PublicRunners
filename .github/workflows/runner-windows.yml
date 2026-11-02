@@ -91,6 +91,11 @@ jobs:
           # and `$null -ne 0` is true, which skipped run-loop.ps1 entirely.
           & "$env:GITHUB_WORKSPACE/src/windows/setup.ps1"
           & "$env:GITHUB_WORKSPACE/src/windows/run-loop.ps1"
+          # The pwsh shell wrapper ends with `exit $LASTEXITCODE`, so a
+          # best-effort command that failed inside the scripts (for example
+          # `config.cmd remove` for a busy runner) would fail an otherwise
+          # successful loop. Real failures throw before this line.
+          exit 0
 
       - name: Chain disabled
         if: env.CHAIN_ENABLED == 'false'

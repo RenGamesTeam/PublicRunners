@@ -144,10 +144,23 @@ while ($true) {
     & taskkill.exe /T /F /PID $process.Id 2>&1 | Out-Null
     $process.WaitForExit(30000) | Out-Null
 
+    # After the local process is killed the server can keep the runner marked
+    # as busy for a few seconds, and config.cmd refuses to remove a busy
+    # runner ("Failed: Removing runner from the server"). Retry briefly so the
+    # normal end of the budget does not leave a stale runner behind; if it
+    # still fails, the next run's cleanup deletes it by prefix.
     Push-Location $runnerDir
     try {
-      & .\config.cmd remove --token $token
-      if ($LASTEXITCODE -ne 0) {
+      $removed = $false
+      for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & .\config.cmd remove --token $token
+        if ($LASTEXITCODE -eq 0) {
+          $removed = $true
+          break
+        }
+        if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
+      }
+      if (-not $removed) {
         Write-Log "WARN: could not remove runner '$runnerName' (it will be cleaned up by prefix)."
       }
     }
